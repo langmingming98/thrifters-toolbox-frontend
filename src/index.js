@@ -1,16 +1,19 @@
-import React, { Component } from 'react';
+import React, { Component, useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import { initializeApp } from "firebase/app";
-import { BrowserRouter, Routes, Route, Link, Outlet } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Link, Outlet, Navigate } from "react-router-dom";
 import { getAnalytics } from "firebase/analytics";
 import { Collapse, Tooltip } from 'bootstrap';
 import { Chart } from "react-google-charts";
+import { createGlobalState } from 'react-hooks-global-state';
 
-
-// Your web app's Firebase configuration
+// Firebase configuration
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
 import { getDatabase, ref, push, set, query, orderByChild, limitToLast, onValue } from "firebase/database";
 import { getAuth, reauthenticateWithCredential } from "firebase/auth";
+
+const initialState = { signedIn: false, userEmail: "" };
+const { useGlobalState } = createGlobalState(initialState);
 
 const firebaseConfig = {
     apiKey: "AIzaSyBaVzL0YDI_a1u52THb5DdSOf4sFY2R6NY",
@@ -27,13 +30,26 @@ const database = getDatabase();
 const auth = getAuth();
 
 function App() {
+    const [globalSignedIn, globalSetSignedIn] = useGlobalState('signedIn');
     return (
         <div>
             <nav className="navbar navbar-expand-lg navbar-light" style={{ backgroundColor: "#274e13" }}>
-                <div className="container">
+                <div className="container-fluid" align="left" style={{width : '80%'}}>
                     <Link to="/" key="search" className="navbar-brand mb-0 h1" style={{ color: "#f2f1ce" }}>Thrifter's Toolbox</Link>
-                    <Link to="/trends" key="trending" className="nav-link" style={{ color: "#f2f1ce" }}>Trending</Link>
-                </div>
+                    <div>
+                        <ul className="navbar-nav me-auto mb-2 mb-lg-0">
+                        <li className="nav-item">
+                        <Link to="/trends" key="trending" className="nav-link" style={{ color: "#f2f1ce" }}>Trending</Link>
+                        </li>
+                        <li className="nav-item">
+                        {!globalSignedIn && <Link to="/login" key="login" className="nav-link" style={{ color: "#f2f1ce" }}>Sign in</Link>}
+                        </li>
+                        <li className="nav-item">
+                        {globalSignedIn && <Link to="/userhome" key="userhome" className="nav-link" style={{ color: "#f2f1ce" }}>Search history</Link>}
+                        </li>
+                        </ul>
+                    </div>
+                 </div>
             </nav>
             <div className="container">
                 <Outlet />
@@ -59,6 +75,7 @@ function postKeyword(keyword) {
 const app = initializeApp(firebaseConfig);
 const analytics = getAnalytics(app);
 const axios = require('axios');
+axios.defaults.withCredentials = true;
 
 function cleanKeyword(keyword) {
     return keyword.toLowerCase().replaceAll("[^A-Za-z0-9\s]", "");
@@ -93,6 +110,155 @@ function sortByFrequency(array) {
     });
     return sorted.map(a => [a, frequency[a]])
 }
+
+function UserHome() {
+    const [signedOut, setSignedOut] = useState(false)
+    const [searchHistory, setSearchHistory] = useState({});
+    const [globalSignedIn, globalSetSignedIn] = useGlobalState('signedIn');
+    const [userEmail, setUserEmail] = useGlobalState('userEmail');
+    useEffect(async () => {
+        var local = 'http://localhost:3001/history';
+        var heroku = 'https://infinite-fortress-72552.herokuapp.com/history';
+        var url;
+        if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+            url = local;
+        } else {url = heroku;}
+        try {
+            const { status, data } = await axios.get(url);
+            const hist = Object.values(data.history);
+            hist.reverse();
+            setSearchHistory(hist);
+        } catch (error) {
+            console.error(error);
+        }
+    }, []);
+
+    const handleSignOut = async () => {
+        var local = 'http://localhost:3001/logout';
+        var heroku = 'https://infinite-fortress-72552.herokuapp.com/logout';
+        var url;
+        if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+            url = local;
+        } else {url = heroku;}
+        const { status, data } = await axios.post(url);
+
+        setSignedOut(true);
+        globalSetSignedIn(false);
+        setUserEmail("");
+
+    }
+    //d-flex flex-row
+    return (
+        <div>
+        <div className="row row-cols-1 row-cols-md-4 g-4" style={{padding: "30px"}}>
+            {
+                Object.values(searchHistory).map(data =>
+                (  <div className="col">
+                    <div className="card" style={{ width: "100%" }}>
+                    <div className="card-body">
+                        <h5 className="card-title">{data.search}</h5>
+                        <p className="card-text">{data.searchedAt.substring(0,10)}</p>
+                        <p className="card-text">{data.search} sold for ${data.poshmarkPrice} on Poshmark and ${data.mercariPrice} on Mercari.</p>
+                    </div>
+                </div>
+                </div>)
+                ) 
+            } 
+        </div>
+        <div style={{padding: "30px"}}>
+        <button type='button' className="btn btn-outline-success" onClick={handleSignOut}>Sign out</button>
+
+        </div>
+        {signedOut && <Navigate to="/" replace={true}/> }
+
+        </div>
+    )
+}
+
+function Login() {
+    const [signedIn, setSignedIn] = useState(false)
+    const [signInMessage, setSignInMessage] = useState("")
+    const [signUpMessage, setSignUpMessage] = useState("")
+    const [globalSignedIn, globalSetSignedIn] = useGlobalState('signedIn');
+    const [userEmail, setUserEmail] = useGlobalState('userEmail');
+
+    const handleSignIn = async() => {
+        var email = document.getElementById('signInInputEmail').value;
+        var password = document.getElementById('signInInputPassword').value;
+        var local = 'http://localhost:3001/auth';
+        var heroku = 'https://infinite-fortress-72552.herokuapp.com/auth';
+        var url;
+        if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+            url = local;
+        } else {url = heroku;}
+        const { status, data } = await axios.post(url, { email: email, password: password }, {validateStatus: null});
+        setSignInMessage(data.message);
+
+        if (status === 200) {
+            setSignedIn(true)
+            globalSetSignedIn(true);
+            setUserEmail(email);
+        }
+    }
+ 
+    const handleSignUp = async() => {
+       var email = document.getElementById('signUpInputEmail').value;
+       var password = document.getElementById('signUpInputPassword').value;
+       var local = 'http://localhost:3001/register';
+       var heroku = 'https://infinite-fortress-72552.herokuapp.com/register';
+       var url;
+       if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+           url = local;
+       } else {url = heroku;}
+
+       const { status, data } = await axios.post(url, { email: email, password: password }, {validateStatus: null});
+       setSignUpMessage(data.message);
+
+       if (status === 201) {
+           document.getElementById('signInInputEmail').value = email;
+           document.getElementById('signInInputPassword').value = password;
+           await handleSignIn()
+       }
+   }
+
+    return (
+                    <div className="d-flex flex-row" style={{ width: "80%", minHeight: '500px', margin: "auto", padding: "100px" }}>
+                        <form style={{ width: "45%"}}>
+                            <h4> Welcome back! </h4>
+                            <p></p>
+                            <div className="mb-3">
+                                <label htmlFor="exampleInputEmail1" className="form-label">Email address</label>
+                                <input type="email" className="form-control" id="signInInputEmail" aria-describedby="emailHelp"/>
+                            </div>
+                            <div className="mb-3">
+                                <label htmlFor="exampleInputPassword1" className="form-label">Password</label>
+                                <input type="password" className="form-control" id="signInInputPassword"/>
+                            </div>
+                            <button type='button' className="btn btn-outline-success" onClick={handleSignIn}>Sign in</button>
+                            <div><p></p><p> {signInMessage} </p></div>
+                        </form> 
+                        <div style={{ width: "10%"}}></div>
+                        <form style={{ width: "45%"}}>
+                            <h4> First time here? </h4>
+                            <p></p>
+        
+                            <div className="mb-3">
+                                <label htmlFor="exampleInputEmail1" className="form-label">Email address</label>
+                                <input type="email" className="form-control" id="signUpInputEmail" aria-describedby="emailHelp"/>
+                            </div>
+                            <div className="mb-3">
+                                <label htmlFor="exampleInputPassword1" className="form-label">Password</label>
+                                <input type="password" className="form-control" id="signUpInputPassword"/>
+                            </div>
+                            <button type='button' className="btn btn-outline-success" onClick={handleSignUp}>Sign up</button>
+                            <div><p></p><p> {signUpMessage} </p></div>
+                        </form>
+        
+                        {signedIn && <Navigate to="/" replace={true}/> }
+                    </div>
+                );
+}
+
 
 class Trends extends Component {
     constructor() {
@@ -219,7 +385,6 @@ class Search extends Component {
         const { data } = await axios.get(url, { params: { search: keyword } });
 
         var results = [];
-        if (data['poshmark_price'].length > 5 && data['mercari_price'].length > 5) {
         var poshmarkStats = this.computeStats(data['poshmark_price']);
         var mercariStats = this.computeStats(data['mercari_price']);
         results.push(["x", "Mercari", "Poshmark"]);
@@ -228,10 +393,7 @@ class Search extends Component {
         results.push(["Median", poshmarkStats[2], mercariStats[2]]);
         results.push(["Upper Quartile", poshmarkStats[3], mercariStats[3]]);
         results.push(["Highest", poshmarkStats[4], mercariStats[4]]);
-        this.setState({ results: results });}
-        else {
-            console.log('too few');
-        }
+        this.setState({ results: results });
         postKeyword(keyword);
         this.setState({lastKeyword: this.state.keyword});
         searchButton.disabled = false;
@@ -371,12 +533,6 @@ class Search extends Component {
                           }
                     }} /> </div>
                 }
-
-
-                    {/* {this.state.results} */}
-                    
-                    
-                    
                 </div>
             </div>)
     }
@@ -388,6 +544,9 @@ ReactDOM.render(
             <Route path="/" key="top" element={<App />}>
                 <Route path="/" key="search" element={<Search />} />
                 <Route path="trends" key="trends" element={<Trends />} />
+                <Route path="login" key="login" element={<Login />} />
+                <Route path="userhome" key="userhome" element={<UserHome />} />
+
             </Route>
         </Routes>
     </BrowserRouter>,
